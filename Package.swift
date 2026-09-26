@@ -39,6 +39,7 @@ let package = Package(
                     "-Xlinker", "__launchd_plist",
                     "-Xlinker", "Sources/ProxyHelper/LaunchServices/com.clashbar.helper.plist",
                 ]),
+            ],
         ),
         .executableTarget(
             name: "ClashBarLoginItem",
