@@ -520,7 +520,9 @@ private struct ClashBarProxyHelperMain {
         let delegate = ProxyHelperListenerDelegate()
         let listener = NSXPCListener(machServiceName: ProxyHelperConstants.machServiceName)
         listener.delegate = delegate
-        listener.setConnectionCodeSigningRequirement(self.buildClientRequirement())
+        if #available(macOS 13, *) {
+            listener.setConnectionCodeSigningRequirement(self.buildClientRequirement())
+        }
         listener.resume()
         dispatchMain()
     }
