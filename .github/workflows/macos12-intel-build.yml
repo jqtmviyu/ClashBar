@@ -67,4 +67,30 @@ jobs:
           lipo -archs "$APP/Contents/Library/LaunchServices/com.clashbar.helper" | grep -qw x86_64
           lipo -archs "$APP/Contents/Library/LoginItems/ClashBarLoginItem.app/Contents/MacOS/ClashBarLoginItem" | grep -qw x86_64
           otool -l "$APP/Contents/MacOS/ClashBar" | grep -A5 LC_BUILD_VERSION | grep -q 'minos 12.0'
+          otool -l "$APP/Contents/Library/LaunchServices/com.clashbar.helper" | grep -q '__launchd_plist'
           codesign --verify --deep --strict "$APP"
+
+      - name: Package macOS 12 Intel app with mihomo core
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf dist/ClashBar.app dist/preprocess
+          TARGET_ARCH=x86_64 \
+          PREPARE_MIHOMO_BINARY=1 \
+          BUNDLE_MIHOMO_BINARY=1 \
+          REQUIRE_MIHOMO_BINARY=1 \
+          ./Scripts/build.sh app
+
+      - name: Archive Intel app
+        shell: bash
+        run: |
+          set -euo pipefail
+          ditto -c -k --sequesterRsrc --keepParent \
+            dist/ClashBar.app dist/ClashBar-macos12-intel.zip
+
+      - name: Upload Intel app artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ClashBar-macos12-intel
+          path: dist/ClashBar-macos12-intel.zip
+          if-no-files-found: error
