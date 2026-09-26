@@ -1,5 +1,6 @@
 import CoreFoundation
 import Foundation
+import ProxyHelperShared
 import Security
 import ServiceManagement
 

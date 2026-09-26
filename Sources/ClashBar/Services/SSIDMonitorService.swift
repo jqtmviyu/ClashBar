@@ -165,17 +165,7 @@ final class SSIDMonitorService: NSObject {
     }
 
     private func currentSSID() -> String? {
-        if let ssid = self.wifiClient.interface()?.ssid()?.trimmedNonEmpty {
-            return ssid
-        }
-
-        for name in self.wifiClient.interfaceNames() ?? [] {
-            if let ssid = self.wifiClient.interface(withName: name)?.ssid()?.trimmedNonEmpty {
-                return ssid
-            }
-        }
-
-        return nil
+        self.wifiClient.interface()?.ssid()?.trimmedNonEmpty
     }
 
     private func hasLocationUsageDescription() -> Bool {
