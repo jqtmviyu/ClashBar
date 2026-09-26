@@ -120,7 +120,6 @@ struct RemoteMachineManagerView: TranslatingView {
                 .padding(.horizontal, contentPadding)
                 .padding(.bottom, contentPadding)
             }
-            .scrollIndicators(.hidden)
 
             Button {
                 self.editorMode = .add
@@ -171,7 +170,7 @@ struct RemoteMachineManagerView: TranslatingView {
             .padding(rowPadding)
             .background(
                 self.nativeRowFill(active: isActive, hovered: self.isHoveringLocalRow && !isActive),
-                in: .rect(cornerRadius: rowCornerRadius))
+                in: RoundedRectangle(cornerRadius: rowCornerRadius, style: .continuous))
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -265,7 +264,7 @@ private struct RemoteMachineRowView: View {
         .padding(rowPadding)
         .background(
             self.nativeRowFill(active: isActive, hovered: self.isHoveringRow && !isActive),
-            in: .rect(cornerRadius: rowCornerRadius))
+            in: RoundedRectangle(cornerRadius: rowCornerRadius, style: .continuous))
         .contentShape(Rectangle())
         .onHover { hovering in
             withAnimation(.easeOut(duration: T.AnimationDuration.quick)) {
@@ -288,7 +287,7 @@ private struct RemoteMachineRowView: View {
                     height: rowActionSize)
                 .background(
                     self.nativeActionBackground(hovered: hovered, destructive: destructive),
-                    in: .rect(cornerRadius: T.cornerRadius))
+                    in: RoundedRectangle(cornerRadius: T.cornerRadius, style: .continuous))
         }
         .buttonStyle(.borderless)
         .foregroundStyle(self.nativeActionForeground(hovered: hovered, destructive: destructive))

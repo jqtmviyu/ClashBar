@@ -1,8 +1,6 @@
 import Foundation
-import os
 import ProxyHelperShared
 import Security
-import ServiceManagement
 
 enum SystemProxyHelperRegistrationState: Equatable, Sendable {
     case enabled
@@ -104,27 +102,6 @@ struct SystemProxyService {
     private let helperLaunchRetryDelayNanoseconds: UInt64 = 250_000_000
     private let helperLaunchRetryAttempts = 4
 
-    private static let systemSettingsOpenGate = SystemSettingsOpenGate()
-
-    private final class SystemSettingsOpenGate: Sendable {
-        private let state = OSAllocatedUnfairLock(initialState: Date.distantPast)
-
-        func openIfNeeded(minimumInterval: TimeInterval) {
-            let shouldOpen = self.state.withLock { lastOpened in
-                let now = Date()
-                guard now.timeIntervalSince(lastOpened) >= minimumInterval else {
-                    return false
-                }
-                lastOpened = now
-                return true
-            }
-
-            if shouldOpen {
-                SMAppService.openSystemSettingsLoginItems()
-            }
-        }
-    }
-
     private enum HelperRegistrationResult {
         case ready
         case needsApproval
@@ -196,8 +173,8 @@ struct SystemProxyService {
     }
 
     func readHelperHealthSnapshot() async -> SystemProxyHelperHealthSnapshot {
-        let registrationState = self.registrationState(from: self.helperService().status)
-        let backgroundActivityAllowed = registrationState != .requiresApproval
+        let registrationState = self.helperRegistrationState()
+        let backgroundActivityAllowed = true
 
         do {
             let processRunning = try self.isHelperProcessRunning()
@@ -296,19 +273,13 @@ struct SystemProxyService {
     }
 
     private func ensureHelperRegistered() throws {
-        if self.helperService().status == .enabled {
-            return
-        }
-
         switch self.attemptHelperRegistration() {
         case .ready:
             return
         case .needsApproval:
-            self.openSystemSettingsLoginItemsIfNeeded()
             throw SystemProxyServiceError.helperNeedsApproval
         case let .failed(message):
-            let status = self.helperService().status
-            throw SystemProxyServiceError.helperNotRegistered(message ?? "status=\(status.rawValue)")
+            throw SystemProxyServiceError.helperNotRegistered(message)
         }
     }
 
@@ -330,19 +301,8 @@ struct SystemProxyService {
         throw SystemProxyServiceError.helperStartTimedOut
     }
 
-    private func registrationState(from status: SMAppService.Status) -> SystemProxyHelperRegistrationState {
-        switch status {
-        case .enabled:
-            .enabled
-        case .requiresApproval:
-            .requiresApproval
-        case .notRegistered:
-            .notRegistered
-        case .notFound:
-            .unavailable
-        @unknown default:
-            .unavailable
-        }
+    private func helperRegistrationState() -> SystemProxyHelperRegistrationState {
+        LegacyPrivilegedHelperInstaller.isInstalled ? .enabled : .notRegistered
     }
 
     private func failedHealthSnapshot(
@@ -387,16 +347,9 @@ struct SystemProxyService {
     }
 
     private func isHelperBundledInMainApp() -> Bool {
-        let bundleURL = Bundle.main.bundleURL
-        let fileManager = FileManager.default
-
-        let plistURL = bundleURL
-            .appendingPathComponent("Contents/Library/LaunchDaemons", isDirectory: true)
-            .appendingPathComponent(ProxyHelperConstants.daemonPlistName, isDirectory: false)
-        let helperURL = bundleURL
+        let helperURL = Bundle.main.bundleURL
             .appendingPathComponent(ProxyHelperConstants.helperBundleProgram, isDirectory: false)
-
-        return fileManager.fileExists(atPath: plistURL.path) && fileManager.fileExists(atPath: helperURL.path)
+        return FileManager.default.fileExists(atPath: helperURL.path)
     }
 
     private func isRunningFromApplicationsDirectory() -> Bool {
@@ -408,48 +361,25 @@ struct SystemProxyService {
     }
 
     private func attemptHelperRegistration() -> HelperRegistrationResult {
-        let daemonService = self.helperService()
-        if daemonService.status == .enabled {
+        if LegacyPrivilegedHelperInstaller.isInstalled {
             return .ready
         }
 
         do {
-            try daemonService.register()
+            try LegacyPrivilegedHelperInstaller.install()
+            return LegacyPrivilegedHelperInstaller.isInstalled ? .ready : .failed(
+                "SMJobBless completed but the helper was not found in the system installation path.")
         } catch {
-            if daemonService.status == .enabled {
-                return .ready
-            }
-            if daemonService.status == .requiresApproval || self.isLikelyApprovalError(error) {
-                return .needsApproval
-            }
             return .failed(error.localizedDescription)
         }
-
-        switch daemonService.status {
-        case .enabled:
-            return .ready
-        case .requiresApproval:
-            return .needsApproval
-        case .notRegistered, .notFound:
-            return .failed("status=\(daemonService.status.rawValue)")
-        @unknown default:
-            return .failed("status=\(daemonService.status.rawValue)")
-        }
-    }
-
-    private func isLikelyApprovalError(_ error: Error) -> Bool {
-        let normalized = error.localizedDescription.lowercased()
-        return normalized.contains("operation not permitted")
-            || normalized.contains("disallowed")
-            || normalized.contains("denied")
-            || normalized.contains("launch constraint")
-            || normalized.contains("background item")
-            || normalized.contains("approval")
     }
 
     private func reregisterHelper() async throws {
-        let daemonService = self.helperService()
-        try? await daemonService.unregister()
+        do {
+            try LegacyPrivilegedHelperInstaller.install()
+        } catch {
+            throw SystemProxyServiceError.helperOperationFailed(error.localizedDescription)
+        }
         try self.ensureHelperRegistered()
     }
 
@@ -491,14 +421,6 @@ struct SystemProxyService {
             return .success(value())
         }
         return .failure(SystemProxyServiceError.helperOperationFailed(message ?? "Unknown helper error."))
-    }
-
-    private func helperService() -> SMAppService {
-        SMAppService.daemon(plistName: ProxyHelperConstants.daemonPlistName)
-    }
-
-    private func openSystemSettingsLoginItemsIfNeeded() {
-        Self.systemSettingsOpenGate.openIfNeeded(minimumInterval: 60)
     }
 
     private func isHelperProcessRunning() throws -> Bool {

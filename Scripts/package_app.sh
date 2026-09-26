@@ -17,7 +17,10 @@ BUNDLE_MIHOMO_BINARY="${BUNDLE_MIHOMO_BINARY:-1}"
 
 APP="$ROOT/dist/${APP_NAME}.app"
 HELPER_LABEL="com.clashbar.helper"
-HELPER_PLIST_SOURCE="$ROOT/Sources/ProxyHelper/LaunchDaemons/${HELPER_LABEL}.plist"
+LOGIN_ITEM_NAME="ClashBarLoginItem"
+LOGIN_ITEM_BUNDLE_ID="com.clashbar.loginitem"
+HELPER_INFO_PLIST_SOURCE="$ROOT/Sources/ProxyHelper/LaunchServices/Info.plist"
+HELPER_LAUNCHD_PLIST_SOURCE="$ROOT/Sources/ProxyHelper/LaunchServices/${HELPER_LABEL}.plist"
 
 cd "$ROOT"
 
@@ -34,16 +37,20 @@ if [ -n "$TARGET_ARCH" ]; then
   BIN_CANDIDATE="$ROOT/.build/${TARGET_ARCH}-apple-macosx/release/ClashBar"
   RESOURCE_BUNDLE_CANDIDATE="$ROOT/.build/${TARGET_ARCH}-apple-macosx/release/ClashBar_ClashBar.bundle"
   HELPER_BIN_CANDIDATE="$ROOT/.build/${TARGET_ARCH}-apple-macosx/release/ClashBarProxyHelper"
+  LOGIN_ITEM_BIN_CANDIDATE="$ROOT/.build/${TARGET_ARCH}-apple-macosx/release/${LOGIN_ITEM_NAME}"
   BIN_PATTERN="*/${TARGET_ARCH}-apple-macosx/release/ClashBar"
   RESOURCE_BUNDLE_PATTERN="*/${TARGET_ARCH}-apple-macosx/release/ClashBar_ClashBar.bundle"
   HELPER_PATTERN="*/${TARGET_ARCH}-apple-macosx/release/ClashBarProxyHelper"
+  LOGIN_ITEM_PATTERN="*/${TARGET_ARCH}-apple-macosx/release/${LOGIN_ITEM_NAME}"
 else
   BIN_CANDIDATE="$ROOT/.build/release/ClashBar"
   RESOURCE_BUNDLE_CANDIDATE="$ROOT/.build/release/ClashBar_ClashBar.bundle"
   HELPER_BIN_CANDIDATE="$ROOT/.build/release/ClashBarProxyHelper"
+  LOGIN_ITEM_BIN_CANDIDATE="$ROOT/.build/release/${LOGIN_ITEM_NAME}"
   BIN_PATTERN="*/release/ClashBar"
   RESOURCE_BUNDLE_PATTERN="*/release/ClashBar_ClashBar.bundle"
   HELPER_PATTERN="*/release/ClashBarProxyHelper"
+  LOGIN_ITEM_PATTERN="*/release/${LOGIN_ITEM_NAME}"
 fi
 
 resolve_build_artifact() {
@@ -173,6 +180,7 @@ remove_bundled_mihomo_candidates() {
 BIN="$(resolve_build_artifact "$BIN_CANDIDATE" file "$BIN_PATTERN")"
 RESOURCE_BUNDLE="$(resolve_build_artifact "$RESOURCE_BUNDLE_CANDIDATE" dir "$RESOURCE_BUNDLE_PATTERN")"
 HELPER_BIN="$(resolve_build_artifact "$HELPER_BIN_CANDIDATE" file "$HELPER_PATTERN")"
+LOGIN_ITEM_BIN="$(resolve_build_artifact "$LOGIN_ITEM_BIN_CANDIDATE" file "$LOGIN_ITEM_PATTERN")"
 
 if [ ! -f "$BIN" ]; then
   echo "Build output not found: $BIN" >&2
@@ -186,17 +194,58 @@ if [ ! -f "$HELPER_BIN" ]; then
   echo "Helper build output not found: $HELPER_BIN" >&2
   exit 1
 fi
-if [ ! -f "$HELPER_PLIST_SOURCE" ]; then
-  echo "Helper plist not found: $HELPER_PLIST_SOURCE" >&2
+if [ ! -f "$LOGIN_ITEM_BIN" ]; then
+  echo "Login item build output not found: $LOGIN_ITEM_BIN" >&2
   exit 1
 fi
+if [ ! -f "$HELPER_INFO_PLIST_SOURCE" ] || [ ! -f "$HELPER_LAUNCHD_PLIST_SOURCE" ]; then
+  echo "SMJobBless helper metadata not found." >&2
+  exit 1
+fi
+
+normalize_architecture() {
+  case "$1" in
+    amd64|x86_64) printf '%s' "x86_64" ;;
+    arm64|aarch64) printf '%s' "arm64" ;;
+    *) printf '%s' "$1" ;;
+  esac
+}
+
+EXPECTED_ARCH="$(normalize_architecture "${TARGET_ARCH:-$(uname -m)}")"
+
+assert_binary_architecture() {
+  local label="$1"
+  local path="$2"
+  local archs
+
+  if command -v lipo >/dev/null 2>&1; then
+    archs="$(lipo -archs "$path" 2>/dev/null || true)"
+  fi
+  if [ -z "${archs:-}" ]; then
+    archs="$(file "$path" 2>/dev/null || true)"
+  fi
+  case "$EXPECTED_ARCH" in
+    x86_64)
+      [[ "$archs" == *"x86_64"* ]] || { echo "$label does not contain x86_64: $archs" >&2; exit 1; } ;;
+    arm64)
+      [[ "$archs" == *"arm64"* ]] || { echo "$label does not contain arm64: $archs" >&2; exit 1; } ;;
+    *)
+      echo "Unsupported target architecture: $EXPECTED_ARCH" >&2
+      exit 1
+      ;;
+  esac
+}
+
+assert_binary_architecture "ClashBar" "$BIN"
+assert_binary_architecture "ClashBarProxyHelper" "$HELPER_BIN"
+assert_binary_architecture "$LOGIN_ITEM_NAME" "$LOGIN_ITEM_BIN"
 
 rm -rf "$APP"
 mkdir -p \
   "$APP/Contents/MacOS" \
   "$APP/Contents/Resources" \
-  "$APP/Contents/Library/HelperTools" \
-  "$APP/Contents/Library/LaunchDaemons"
+  "$APP/Contents/Library/LaunchServices" \
+  "$APP/Contents/Library/LoginItems/$LOGIN_ITEM_NAME.app/Contents/MacOS"
 
 cp "$BIN" "$APP/Contents/MacOS/ClashBar"
 chmod +x "$APP/Contents/MacOS/ClashBar"
@@ -214,6 +263,7 @@ if [ "$BUNDLE_MIHOMO_BINARY" = "1" ]; then
   fi
 
   if [ -n "$MIHOMO_SOURCE_PATH" ]; then
+    assert_binary_architecture "mihomo" "$MIHOMO_SOURCE_PATH"
     MIHOMO_INSTALL_PATH="$(resolve_mihomo_install_path "mihomo.gz")"
     mkdir -p "$(dirname "$MIHOMO_INSTALL_PATH")"
     remove_bundled_mihomo_candidates "mihomo"
@@ -234,14 +284,32 @@ else
   echo "Skipped bundling mihomo payload."
 fi
 
-cp "$HELPER_BIN" "$APP/Contents/Library/HelperTools/$HELPER_LABEL"
-chmod +x "$APP/Contents/Library/HelperTools/$HELPER_LABEL"
-cp "$HELPER_PLIST_SOURCE" "$APP/Contents/Library/LaunchDaemons/${HELPER_LABEL}.plist"
+cp "$HELPER_BIN" "$APP/Contents/Library/LaunchServices/$HELPER_LABEL"
+chmod +x "$APP/Contents/Library/LaunchServices/$HELPER_LABEL"
+
+LOGIN_ITEM_APP="$APP/Contents/Library/LoginItems/$LOGIN_ITEM_NAME.app"
+cp "$LOGIN_ITEM_BIN" "$LOGIN_ITEM_APP/Contents/MacOS/$LOGIN_ITEM_NAME"
+chmod +x "$LOGIN_ITEM_APP/Contents/MacOS/$LOGIN_ITEM_NAME"
+cat > "$LOGIN_ITEM_APP/Contents/Info.plist" <<LOGIN_PLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+<key>CFBundleIdentifier</key><string>${LOGIN_ITEM_BUNDLE_ID}</string>
+<key>CFBundleName</key><string>${LOGIN_ITEM_NAME}</string>
+<key>CFBundleDisplayName</key><string>${LOGIN_ITEM_NAME}</string>
+<key>CFBundleExecutable</key><string>${LOGIN_ITEM_NAME}</string>
+<key>CFBundlePackageType</key><string>APPL</string>
+<key>LSUIElement</key><true/>
+<key>LSMinimumSystemVersion</key><string>12.0</string>
+</dict></plist>
+LOGIN_PLIST
 
 print_artifact_size "Main binary before strip" "$APP/Contents/MacOS/ClashBar"
-print_artifact_size "Helper binary before strip" "$APP/Contents/Library/HelperTools/$HELPER_LABEL"
+print_artifact_size "Helper binary before strip" "$APP/Contents/Library/LaunchServices/$HELPER_LABEL"
+print_artifact_size "Login item before strip" "$LOGIN_ITEM_APP/Contents/MacOS/$LOGIN_ITEM_NAME"
 strip_binary_if_enabled "Main binary" "$APP/Contents/MacOS/ClashBar"
-strip_binary_if_enabled "Helper binary" "$APP/Contents/Library/HelperTools/$HELPER_LABEL"
+strip_binary_if_enabled "Helper binary" "$APP/Contents/Library/LaunchServices/$HELPER_LABEL"
+strip_binary_if_enabled "Login item binary" "$LOGIN_ITEM_APP/Contents/MacOS/$LOGIN_ITEM_NAME"
 
 ICON_PLIST_ENTRY=""
 if [ -f "$PREPROCESSED_ICON_PATH" ]; then
@@ -268,6 +336,11 @@ cat > "$APP/Contents/Info.plist" <<PLIST
 <key>CFBundlePackageType</key><string>APPL</string>
 <key>CFBundleShortVersionString</key><string>${APP_VERSION}</string>
 <key>CFBundleVersion</key><string>${BUILD_NUMBER}</string>
+<key>LSMinimumSystemVersion</key><string>12.0</string>
+<key>SMPrivilegedExecutables</key>
+<dict>
+<key>${HELPER_LABEL}</key><string>identifier "${HELPER_LABEL}"</string>
+</dict>
 $ICON_PLIST_ENTRY
 <key>ClashBarBundlesMihomoCore</key>${BUNDLES_MIHOMO_CORE_PLIST_VALUE}
 <key>NSLocationWhenInUseUsageDescription</key><string>ClashBar uses your current Wi-Fi name to switch proxy config profiles automatically.</string>
@@ -282,7 +355,8 @@ PLIST
 CODESIGN_IDENTITY="${CODESIGN_IDENTITY:--}"
 
 if command -v codesign >/dev/null 2>&1; then
-  codesign --force --sign "$CODESIGN_IDENTITY" "$APP/Contents/Library/HelperTools/$HELPER_LABEL"
+  codesign --force --sign "$CODESIGN_IDENTITY" "$APP/Contents/Library/LaunchServices/$HELPER_LABEL"
+  codesign --force --sign "$CODESIGN_IDENTITY" "$LOGIN_ITEM_APP"
   codesign --force --sign "$CODESIGN_IDENTITY" "$APP"
 fi
 

@@ -33,6 +33,21 @@ is_mach_o_binary() {
   [[ "$file_desc" == *"Mach-O"* ]]
 }
 
+binary_supports_arch() {
+  local path="$1"
+  local expected_arch="$2"
+  local arch_list=""
+
+  if command -v lipo >/dev/null 2>&1; then
+    arch_list="$(lipo -archs "$path" 2>/dev/null || true)"
+  fi
+  if [ -z "$arch_list" ]; then
+    arch_list="$(file "$path" 2>/dev/null || true)"
+  fi
+
+  [[ "$arch_list" == *"$expected_arch"* ]]
+}
+
 resolve_target_arch() {
   local requested="$TARGET_ARCH"
   if [ -z "$requested" ]; then
@@ -54,8 +69,8 @@ resolve_mihomo_asset_candidates() {
   case "$arch" in
     x86_64)
       cat <<EOF
-mihomo-darwin-amd64-v2-go122-${MIHOMO_VERSION}.gz
 mihomo-darwin-amd64-${MIHOMO_VERSION}.gz
+mihomo-darwin-amd64-v2-go122-${MIHOMO_VERSION}.gz
 EOF
       ;;
     arm64)
@@ -119,12 +134,20 @@ download_mihomo_binary() {
 
 prepare_mihomo() {
   mkdir -p "$(dirname "$MIHOMO_RESOURCE_PATH")"
+  local target_arch
+  target_arch="$(resolve_target_arch)"
 
-  if [ "$REUSE_LOCAL_MIHOMO" = "1" ] && [ -f "$MIHOMO_RESOURCE_PATH" ] && is_mach_o_binary "$MIHOMO_RESOURCE_PATH"; then
+  if [ "$REUSE_LOCAL_MIHOMO" = "1" ] \
+    && [ -f "$MIHOMO_RESOURCE_PATH" ] \
+    && is_mach_o_binary "$MIHOMO_RESOURCE_PATH" \
+    && binary_supports_arch "$MIHOMO_RESOURCE_PATH" "$target_arch"; then
     install -m 755 "$MIHOMO_RESOURCE_PATH" "$PREPROCESSED_MIHOMO_PATH"
-    echo "Prepared mihomo from local resource: $MIHOMO_RESOURCE_PATH"
+    echo "Prepared mihomo from local resource: $MIHOMO_RESOURCE_PATH ($target_arch)"
     echo "Prepared mihomo path: $PREPROCESSED_MIHOMO_PATH"
   else
+    if [ -f "$MIHOMO_RESOURCE_PATH" ] && is_mach_o_binary "$MIHOMO_RESOURCE_PATH"; then
+      echo "Local mihomo does not contain target architecture $target_arch; downloading a matching asset."
+    fi
     if [ "$DOWNLOAD_MIHOMO" != "1" ]; then
       echo "Local mihomo binary is missing or invalid, and DOWNLOAD_MIHOMO=$DOWNLOAD_MIHOMO." >&2
       echo "Provide a real Mach-O binary at $MIHOMO_RESOURCE_PATH or enable download." >&2
@@ -137,6 +160,10 @@ prepare_mihomo() {
 
   if ! is_mach_o_binary "$PREPROCESSED_MIHOMO_PATH"; then
     echo "Prepared mihomo is not a valid Mach-O binary: $PREPROCESSED_MIHOMO_PATH" >&2
+    exit 1
+  fi
+  if ! binary_supports_arch "$PREPROCESSED_MIHOMO_PATH" "$target_arch"; then
+    echo "Prepared mihomo does not contain target architecture $target_arch: $PREPROCESSED_MIHOMO_PATH" >&2
     exit 1
   fi
 

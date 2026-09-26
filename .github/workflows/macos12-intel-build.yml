@@ -1,0 +1,70 @@
+name: macOS 12 Intel compatibility
+
+on:
+  push:
+    branches:
+      - '**'
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build-x86-64:
+    runs-on: macos-15
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Select Xcode
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
+
+      - name: Verify toolchain
+        shell: bash
+        run: |
+          set -euo pipefail
+          xcodebuild -version
+          swift --version
+          if ! swift --version | grep -Eq 'Swift version (6\.[2-9]|[7-9]\.)'; then
+            echo "Swift 6.2+ is required by Package.swift." >&2
+            exit 1
+          fi
+
+      - name: Validate shell scripts
+        shell: bash
+        run: bash -n Scripts/*.sh
+
+      - name: Build x86_64 Swift targets
+        shell: bash
+        run: swift build -c release --arch x86_64
+
+      - name: Package macOS 12 Intel app without core
+        shell: bash
+        run: |
+          set -euo pipefail
+          TARGET_ARCH=x86_64 \
+          PREPARE_MIHOMO_BINARY=0 \
+          BUNDLE_MIHOMO_BINARY=0 \
+          REQUIRE_MIHOMO_BINARY=0 \
+          ./Scripts/build.sh app
+
+      - name: Verify deployment target and architectures
+        shell: bash
+        run: |
+          set -euo pipefail
+          APP="dist/ClashBar.app"
+          test -f "$APP/Contents/Info.plist"
+          test -f "$APP/Contents/MacOS/ClashBar"
+          test -f "$APP/Contents/Library/LaunchServices/com.clashbar.helper"
+          test -f "$APP/Contents/Library/LoginItems/ClashBarLoginItem.app/Contents/MacOS/ClashBarLoginItem"
+          plutil -lint "$APP/Contents/Info.plist"
+          file "$APP/Contents/MacOS/ClashBar"
+          file "$APP/Contents/Library/LaunchServices/com.clashbar.helper"
+          file "$APP/Contents/Library/LoginItems/ClashBarLoginItem.app/Contents/MacOS/ClashBarLoginItem"
+          lipo -archs "$APP/Contents/MacOS/ClashBar" | grep -qw x86_64
+          lipo -archs "$APP/Contents/Library/LaunchServices/com.clashbar.helper" | grep -qw x86_64
+          lipo -archs "$APP/Contents/Library/LoginItems/ClashBarLoginItem.app/Contents/MacOS/ClashBarLoginItem" | grep -qw x86_64
+          otool -l "$APP/Contents/MacOS/ClashBar" | grep -A5 LC_BUILD_VERSION | grep -q 'minos 12.0'
+          codesign --verify --deep --strict "$APP"

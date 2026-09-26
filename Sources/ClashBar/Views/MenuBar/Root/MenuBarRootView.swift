@@ -105,7 +105,6 @@ struct MenuBarRootView: TranslatingView {
             ScrollView(.vertical) {
                 self.measuredTabContent(for: self.rootViewModel.currentTab)
             }
-            .scrollIndicators(.hidden)
             .frame(maxWidth: .infinity, alignment: .topLeading)
             .frame(height: tabScrollAreaHeight, alignment: .top)
 

@@ -8,7 +8,7 @@
 轻量、稳定，在菜单栏完成配置、节点、规则、连接与系统代理管理。 ✨
 
 <p>
-  <img alt="Platform" src="https://img.shields.io/badge/macOS-13%2B-111111?style=flat-square&logo=apple" />
+  <img alt="Platform" src="https://img.shields.io/badge/macOS-12%20Intel-111111?style=flat-square&logo=apple" />
   <img alt="Swift" src="https://img.shields.io/badge/Swift-6.2-F05138?style=flat-square&logo=swift" />
   <img alt="Build" src="https://img.shields.io/badge/Build-SwiftPM-0A84FF?style=flat-square" />
   <img alt="i18n" src="https://img.shields.io/badge/i18n-zh--Hans%20%7C%20en-34C759?style=flat-square" />
@@ -75,7 +75,7 @@
 
 ## 📦 安装
 
-**要求：** macOS 13+ 🍎
+**要求：** macOS 12 Intel（x86_64）🍎
 
 ```sh
 brew tap Sitoi/tap
@@ -96,8 +96,8 @@ brew uninstall --zap --cask clashbar
 >
 > - ⚠️ 同一时间只让一个 mihomo / Clash 系客户端接管系统代理。
 > - 📂 系统代理依赖打包后的 `.app` 与登录项授权；请放到 `/Applications` 后再使用。
-> - 🔑 首次开启系统代理或开机启动时，在 **系统设置 → 通用 → 登录项** 允许 ClashBar。
-> - 🔄 开关异常时，先在登录项中关闭再打开 ClashBar 后台项目，或在应用内 `Restart` 内核。
+> - 🔑 首次开启系统代理时需要管理员授权；请将应用放到 `/Applications` 后再操作。
+> - 🔄 开关异常时，先关闭再重新打开 ClashBar，或在应用内 `Restart` 内核。
 
 ## 🚀 快速上手
 
@@ -125,10 +125,11 @@ brew uninstall --zap --cask clashbar
 ## 🛠️ 开发构建
 
 ```sh
-# 依赖：Xcode / Swift 6.2+、macOS 13+
-make build                 # 产出 dist/ClashBar.app（默认不含 Core）
-make build WITH_CORE=1     # 打包内置 mihomo
-make dist WITH_CORE=1      # app + dmg
+# 依赖：GitHub Actions（Swift 6.2+，macOS 15 runner）
+# 当前目标设备：macOS 12 Intel / x86_64
+TARGET_ARCH=x86_64 make build                 # 产出 dist/ClashBar.app（默认不含 Core）
+TARGET_ARCH=x86_64 make build WITH_CORE=1     # 打包内置 mihomo
+TARGET_ARCH=x86_64 make dist WITH_CORE=1      # app + dmg
 ```
 
 ## 🙌 社区

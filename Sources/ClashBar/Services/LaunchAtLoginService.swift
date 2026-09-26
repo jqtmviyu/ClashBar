@@ -1,5 +1,11 @@
+import CoreFoundation
 import Foundation
 import ServiceManagement
+
+private enum LaunchItemConstants {
+    static let bundleIdentifier = "com.clashbar.loginitem"
+    static let expectedStateKey = "ClashBar.LegacyLaunchItemEnabled"
+}
 
 enum AppLaunchServiceError: Error {
     case unsupportedEnvironment
@@ -9,14 +15,11 @@ enum AppLaunchServiceError: Error {
 }
 
 struct AppLaunchService {
-    private let service: SMAppService
-
-    init(service: SMAppService = .mainApp) {
-        self.service = service
-    }
-
     var isEnabled: Bool {
-        self.service.status == .enabled
+        if self.isRegisteredWithLaunchd {
+            return true
+        }
+        return UserDefaults.standard.bool(forKey: LaunchItemConstants.expectedStateKey)
     }
 
     func setEnabled(_ enabled: Bool) throws {
@@ -24,32 +27,28 @@ struct AppLaunchService {
             throw AppLaunchServiceError.unsupportedEnvironment
         }
 
-        if enabled {
-            do {
-                try self.service.register()
-            } catch {
-                throw AppLaunchServiceError.registrationFailed(error.localizedDescription)
+        let identifier = (LaunchItemConstants.bundleIdentifier as NSString) as CFString
+        guard SMLoginItemSetEnabled(identifier, enabled) else {
+            let message = enabled
+                ? "SMLoginItemSetEnabled returned false."
+                : "Failed to disable the login item."
+            if enabled {
+                throw AppLaunchServiceError.registrationFailed(message)
             }
+            throw AppLaunchServiceError.unregistrationFailed(message)
+        }
 
-            let status = self.service.status
-            if status == .enabled {
-                return
-            }
-            if status == .requiresApproval {
-                SMAppService.openSystemSettingsLoginItems()
-                throw AppLaunchServiceError.requiresApproval
-            }
-            throw AppLaunchServiceError.registrationFailed("status=\(status.rawValue)")
-        } else {
-            do {
-                try self.service.unregister()
-            } catch {
-                throw AppLaunchServiceError.unregistrationFailed(error.localizedDescription)
-            }
+        UserDefaults.standard.set(enabled, forKey: LaunchItemConstants.expectedStateKey)
+    }
 
-            if self.service.status == .enabled {
-                throw AppLaunchServiceError.unregistrationFailed("status=\(self.service.status.rawValue)")
-            }
+    private var isRegisteredWithLaunchd: Bool {
+        guard let unmanagedJobs = SMCopyAllJobDictionaries(kSMDomainUserLaunchd) else {
+            return false
+        }
+        let jobs = unmanagedJobs.takeRetainedValue() as NSArray
+        return jobs.contains { job in
+            guard let dictionary = job as? [String: Any] else { return false }
+            return dictionary["Label"] as? String == LaunchItemConstants.bundleIdentifier
         }
     }
 
