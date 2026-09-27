@@ -81,6 +81,14 @@ jobs:
           REQUIRE_MIHOMO_BINARY=1 \
           ./Scripts/build.sh app
 
+      - name: Create Intel DMG
+        shell: bash
+        run: |
+          set -euo pipefail
+          APP_VERSION=0.1.0 \
+          DMG_SUFFIX=macos12-intel \
+          ./Scripts/build.sh dmg
+
       - name: Archive Intel app
         shell: bash
         run: |
@@ -88,9 +96,12 @@ jobs:
           ditto -c -k --sequesterRsrc --keepParent \
             dist/ClashBar.app dist/ClashBar-macos12-intel.zip
 
-      - name: Upload Intel app artifact
+      - name: Upload Intel artifacts
         uses: actions/upload-artifact@v4
         with:
           name: ClashBar-macos12-intel
-          path: dist/ClashBar-macos12-intel.zip
+          path: |
+            dist/ClashBar-macos12-intel.zip
+            dist/ClashBar-0.1.0-macos12-intel.dmg
+            dist/ClashBar-0.1.0-macos12-intel.dmg.sha256
           if-no-files-found: error
